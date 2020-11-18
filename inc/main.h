@@ -9,6 +9,10 @@
 #include <iostream>
 #include <pcap.h>
 #include <string>
+#include <iomanip>
+#include <unistd.h>
+#include <sys/socket.h>
+
 
 using std::cout;
 using std::endl;
