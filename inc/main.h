@@ -12,6 +12,13 @@
 #include <iomanip>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <netinet/tcp.h>
+#include <stdio.h>
+#include <time.h>
+#include <pcap.h>
+#include <netinet/ip.h>
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
 
 
 using std::cout;
@@ -30,5 +37,17 @@ bool        changeTTL(uint64_t sockFd, uint64_t socketTTL);
 bool        sendRequestUDP(uint64_t sockFd, addrinfo *addrInfo);
 std::string getDomainName(uint32_t IpAddr, std::string ipAddr);
 bool        isTTLExceeded(uint8_t *buf, ssize_t retRecv);
+
+void my_packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header);
+
+struct pseudoHdrIp {
+    uint32_t srcAddr;
+    uint32_t dstAddr;
+    uint8_t reserved;
+    uint8_t protocol;
+    uint16_t tcpLength;
+};
+
 
 #endif //NMAP_MAIN_H

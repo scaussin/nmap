@@ -2,8 +2,8 @@
 // Created by Sylvain Caussinus on 30/10/2020.
 //
 
-#include <netinet/tcp.h>
 #include "main.h"
+
 
 int main(int ac, char **av)
 {
@@ -13,11 +13,11 @@ int main(int ac, char **av)
         return 1;
     }
 
-    /*char *domainNameDest = av[1];
+    char *domainNameDest = av[1];
 
-    uint16_t leBonGrosPorc;
+    uint16_t leBonGrosPorcDeDestination;
     try {
-        leBonGrosPorc = std::stoi(av[2]);
+        leBonGrosPorcDeDestination = std::stoi(av[2]);
     }
     catch (std::exception &e)
     {
@@ -25,7 +25,7 @@ int main(int ac, char **av)
         return (1);
     }
 
-    addrinfo hints = {0};
+    /*addrinfo hints = {0};
     hints.ai_family = AF_INET; // IPv4
     hints.ai_socktype = 0;
     hints.ai_protocol = IPPROTO_IP;
@@ -53,141 +53,154 @@ int main(int ac, char **av)
     cout << "Nmap scan report for " << domainNameDest << " (" << ipDest << ")" << endl;
 
 */
-    //creation de la socket en IPv4 / UDP pour l'envoi des messages
-    //int32_t sockFdRaw = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    //int32_t sockFdRaw = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
-    int32_t sockFdRaw = socket(PF_NDRV , SOCK_RAW , IPPROTO_UDP) ;
-    if (sockFdRaw == -1)
+    //creation de la raw socket en TCP pour l'envoi des SYN
+    int32_t sockFdRawTcp = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+    if (sockFdRawTcp == -1)
     {
         cout << "ERROR socket(). impossible to create the socket" << endl;
         return 1;
     }
 
-    int yes = 1;
-    setsockopt(sockFdRaw, IPPROTO_IP, IP_HDRINCL, &yes, sizeof(yes));
+    /*int yes = 1;
+    setsockopt(sockFdRaw, IPPROTO_IP, IP_HDRINCL, &yes, sizeof(yes));*/
 
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
-    //addr.sin_port = htons(0); //attribue un port disponible automatiquement
-    addr.sin_port = htons(4300);
+    addr.sin_port = htons(0); //attribue un port disponible automatiquement
     addr.sin_addr.s_addr = htonl(INADDR_ANY); //attribue automatiquement l'ip locale
 
     //MacOs specificity - (uniquement pour send)
-   /* int32_t retBind = bind(sockFdRaw, (sockaddr *) &addr, sizeof(addr));
+    int32_t retBind = bind(sockFdRawTcp, (sockaddr *) &addr, sizeof(addr));
     if (retBind == -1)
     {
         cout << "retBind error: " << retBind << endl;
-    }*/
+    }
 
-    sockaddr_in sin;
+    sockaddr_in sin = {0};
     socklen_t len = sizeof(sin);
-    if (getsockname(sockFdRaw, (struct sockaddr *)&sin, &len) == -1)
+    if (getsockname(sockFdRawTcp, (struct sockaddr *)&sin, &len) == -1)
         perror("getsockname");
     else
-        printf("port number %d\n", ntohs(sin.sin_port));
+        printf("port number %d\n", sin.sin_port);
+
 
     sockaddr_in addrDest = {0};
     addrDest.sin_family = AF_INET;
-    addrDest.sin_port = htons(4200);
-    inet_pton(AF_INET, "127.0.0.1", &addrDest.sin_addr.s_addr);
+    addrDest.sin_port = htons(leBonGrosPorcDeDestination);
+    inet_pton(AF_INET, domainNameDest, &addrDest.sin_addr.s_addr);
 
     tcphdr tcpHeader = {0};
-    tcpHeader.th_sport = htons(4300);
-    tcpHeader.th_dport = htons(4200);
+    tcpHeader.th_sport = htons(4242);
+    tcpHeader.th_dport = htons(leBonGrosPorcDeDestination);
     tcpHeader.th_off = sizeof(tcphdr) >> (uint32_t)2;
     tcpHeader.th_flags |= (uint32_t)TH_SYN;
     tcpHeader.th_win = htons(1024);
-    cout << "checksum: " << icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader));
-    tcpHeader.th_sum = 0xAC8C; // icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader) / 2);
+    //cout << "checksum: " << htons(icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader)/2)) << endl;
+    //tcpHeader.th_sum = 0xbac4;//htons(icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader)));
 
-    /*if (sendto(sockFdRaw, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
+    cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
+    if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
     {
         cout << "Error sendto()" << endl;
         perror("perror sendto");
         return 1;
+    }
+
+
+
+
+    /* PCAP */
+
+    //char *device;
+    char error_buffer[PCAP_ERRBUF_SIZE];
+    pcap_t *handle;
+    char dev[] = "en0";
+    bpf_u_int32 subnet_mask, ip;
+    int timeout_limit = 10000; /* In milliseconds */
+    //cout << __PRETTY_FUNCTION__ << endl;
+    /* Open device for live capture */
+
+    if (pcap_lookupnet(dev, &ip, &subnet_mask, error_buffer) == -1) {
+        printf("Could not get information for device: %s\n", dev);
+        ip = 0;
+        subnet_mask = 0;
+    }
+
+    /*pcap_if_t *devices;
+    if (pcap_findalldevs(&devices, error_buffer) != 0)
+    {
+        printf("Could not get device: %s\n", dev);
+    }
+
+    while(devices)
+    {
+        cout << "name: " << devices->name << endl;
+        if (devices->description)
+            cout << "description: " << devices->description << endl;
+        cout << "flag: " << devices->flags << endl;
+        if (std::string(devices->name) == "lo0")
+        {
+            break;
+        }
+        devices = devices->next;
+        cout << endl;
     }*/
-
-    /*cout << "listen()..." << endl;
-    int32_t retListent = listen(sockFdRaw, 5);
-    if (retListent == -1)
-    {
-        cout << "listen error: " << retListent << endl;
-    }*/
-
-    char buf[2048] = {0};
-    cout << "recv()..." << endl;
-    //for recvfrom()
-    sockaddr_in sockaddrInRecv = {0};
-    socklen_t p;
-
-    int32_t retRecv = recvfrom(sockFdRaw, buf, (__darwin_size_t)sizeof(buf), 0, (sockaddr *)&sockaddrInRecv, &p);
-    if (retRecv == -1)
-    {
-        cout << "recv error: " << retRecv << endl;
-        return 1;
-    }
-    cout << "retRecv: " << retRecv << endl;
-    hexdumpBuf(buf, retRecv);
-
-    retRecv = recvfrom(sockFdRaw, buf, (__darwin_size_t)sizeof(buf), 0, (sockaddr *)&sockaddrInRecv, &p);
-    if (retRecv == -1)
-    {
-        cout << "recv error: " << retRecv << endl;
-        return 1;
-    }
-    cout << "retRecv: " << retRecv << endl;
-    hexdumpBuf(buf, retRecv);
+    //cout << "name: " << devices->name << endl;
+    //cout << "description: " << devices->description << endl;
 
 
-    retRecv = recvfrom(sockFdRaw, buf, (__darwin_size_t)sizeof(buf), 0, (sockaddr *)&sockaddrInRecv, &p);
-    if (retRecv == -1)
-    {
-        cout << "recv error: " << retRecv << endl;
-        return 1;
-    }
-    cout << "retRecv: " << retRecv << endl;
-    hexdumpBuf(buf, retRecv);
-
-
-    /*cout << "recv()2..." << endl;
-     retRecv = recv(sockFdRaw, buf, (__darwin_size_t)sizeof(buf), 0);
-    if (retRecv == -1)
-    {
-        cout << "recv error: " << retRecv << endl;
-        return 1;
-    }
-    cout << "retRecv: " << retRecv << endl;
-    hexdumpBuf(buf, retRecv);*/
-
-
-    /*cout << "sizeof(sockaddr)" << sizeof(sockaddr) << endl;
-    cout << "sizeof(sockaddr*)" << sizeof(sockaddr*) << endl;*/
-
-    /*sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t) 28001);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    //MacOs specificity - (uniquement pour send)
-    int retBind = bind(sockFdUDP, (sockaddr *) &addr, sizeof(addr));
-    if (retBind == -1)
-    {
-        cout << "retBind error: " << retBind << endl;
+    handle = pcap_open_live(dev, BUFSIZ, 1, timeout_limit, error_buffer);
+    if (handle == nullptr) {
+        fprintf(stderr, "Could not open device lo0: %s\n", error_buffer);
+        return 2;
     }
 
-    //for recvfrom()
-    sockaddr_in sockaddrInRecv = {0};
-    fd_set fdRead;
+    char filter_exp[] = "tcp";
+    bpf_program filter = {0};
+    if (pcap_compile(handle, &filter, filter_exp, 0, ip) == -1) {
+        printf("Bad filter - %s\n", pcap_geterr(handle));
+        return 2;
+    }
+    if (pcap_setfilter(handle, &filter) == -1) {
+        printf("Error setting filter - %s\n", pcap_geterr(handle));
+        return 2;
+    }
 
-    int32_t retSelect;
-    //sockaddrInRecv.sin_family = AF_INET;
-    //sockaddrInRecv.sin_port = 0;
-    //sockaddrInRecv.sin_addr.s_addr = INADDR_ANY;
-    char bufRecv[2048] = {0};
+    pcap_loop(handle, 0, my_packet_handler, nullptr);
+    pcap_close(handle);
 
-    bool loop = true;
-    uint64_t socketTTL = 1;*/
     return (0);
+}
+
+void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
+{
+    //cout << __PRETTY_FUNCTION__ << endl;
+    struct ether_header *eth_header;
+    ip *iphdr = (ip *)(packet + sizeof(ether_header));
+    eth_header = (struct ether_header *) packet;
+
+//    cout << "eth_header->ether_type: " << eth_header->ether_type << endl;
+//    cout << "ntohs: " << ntohs(eth_header->ether_type) << endl;
+    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP)
+    {
+        cout << "[IP][" << (uint16_t)iphdr->ip_p <<  "]";
+    }
+
+    //hexdumpBuf((char *)packet, header->len);
+
+
+    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
+        printf("IP\n");
+    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_ARP) {
+        printf("ARP\n");
+    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_REVARP) {
+        printf("Reverse ARP\n");
+    }
+}
+
+void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) {
+    printf("Packet capture length: %d\n", packet_header.caplen);
+    printf("Packet total length %d\n", packet_header.len);
 }
 
 uint16_t icmpChecksum(uint16_t *data, uint32_t len)
