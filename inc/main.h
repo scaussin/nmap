@@ -19,6 +19,8 @@
 #include <netinet/ip.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
+#include <ifaddrs.h>
+#include <string.h>
 
 
 using std::cout;
@@ -40,6 +42,8 @@ bool        isTTLExceeded(uint8_t *buf, ssize_t retRecv);
 
 void my_packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header);
+uint32_t nm_get_ip_interface(const char *interfaceName);
+void makeChecksumTcp(uint32_t dstAddr, const char *interfaceName, tcphdr *tcpHeader);
 
 struct pseudoHdrIp {
     uint32_t srcAddr;

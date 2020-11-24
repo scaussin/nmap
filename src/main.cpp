@@ -4,6 +4,7 @@
 
 #include "main.h"
 
+#define INTERFACE "en0"
 
 int main(int ac, char **av)
 {
@@ -95,8 +96,7 @@ int main(int ac, char **av)
     tcpHeader.th_off = sizeof(tcphdr) >> (uint32_t)2;
     tcpHeader.th_flags |= (uint32_t)TH_SYN;
     tcpHeader.th_win = htons(1024);
-    //cout << "checksum: " << htons(icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader)/2)) << endl;
-    //tcpHeader.th_sum = 0xbac4;//htons(icmpChecksum((uint16_t *)&tcpHeader, sizeof(tcpHeader)));
+    makeChecksumTcp((uint32_t)addrDest.sin_addr.s_addr, std::string(INTERFACE).c_str(), &tcpHeader);
 
     cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
     if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
@@ -114,7 +114,7 @@ int main(int ac, char **av)
     //char *device;
     char error_buffer[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
-    char dev[] = "en0";
+    char dev[] = INTERFACE;
     bpf_u_int32 subnet_mask, ip;
     int timeout_limit = 10000; /* In milliseconds */
     //cout << __PRETTY_FUNCTION__ << endl;
@@ -169,6 +169,48 @@ int main(int ac, char **av)
     pcap_loop(handle, 0, my_packet_handler, nullptr);
     pcap_close(handle);
 
+    return (0);
+}
+
+//TODO envoyer data pour calculer tcpLength
+void makeChecksumTcp(uint32_t dstAddr, const char *interfaceName , tcphdr *tcpHeader)
+{
+    pseudoHdrIp phi = {0};
+
+    phi.dstAddr = dstAddr;
+    phi.srcAddr = nm_get_ip_interface(interfaceName);
+    phi.protocol = IPPROTO_TCP;
+    phi.tcpLength = htons(sizeof(tcphdr));
+
+    uint8_t buf[256];
+    memcpy(buf, &phi, sizeof(phi));
+    memcpy(buf + sizeof(phi), tcpHeader, sizeof(*tcpHeader));
+
+    tcpHeader->th_sum = icmpChecksum((uint16_t *)buf, sizeof(phi) + sizeof(*tcpHeader));
+}
+
+uint32_t nm_get_ip_interface(const char *interfaceName)
+{
+    ifaddrs *ifap;
+    ifaddrs *ifa;
+
+    if (getifaddrs(&ifap) < 0)
+    {
+        cout << "[ERROR] getifaddrs" << endl;
+        return 0;
+    }
+    ifa = ifap;
+    while (ifa->ifa_next != nullptr)
+    {
+        if (ifa->ifa_addr->sa_family == AF_INET && strcmp(interfaceName, ifa->ifa_name) == 0)
+        {
+            uint32_t res = ((sockaddr_in *)(ifa->ifa_addr))->sin_addr.s_addr;
+            freeifaddrs(ifap);
+            return (res);
+        }
+        ifa = ifa->ifa_next;
+    }
+    freeifaddrs(ifap);
     return (0);
 }
 
