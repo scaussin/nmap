@@ -116,7 +116,7 @@ int main(int ac, char **av)
     pcap_t *handle;
     char dev[] = INTERFACE;
     bpf_u_int32 subnet_mask, ip;
-    int timeout_limit = 10000; /* In milliseconds */
+    int timeout_limit = 100; /* In milliseconds */
     //cout << __PRETTY_FUNCTION__ << endl;
     /* Open device for live capture */
 
@@ -155,7 +155,7 @@ int main(int ac, char **av)
         return 2;
     }
 
-    char filter_exp[] = "tcp";
+    char filter_exp[] = "src port 80 && dst port 4242 && (tcp[tcpflags] == (tcp-syn | tcp-ack))";
     bpf_program filter = {0};
     if (pcap_compile(handle, &filter, filter_exp, 0, ip) == -1) {
         printf("Bad filter - %s\n", pcap_geterr(handle));
@@ -166,10 +166,36 @@ int main(int ac, char **av)
         return 2;
     }
 
-    pcap_loop(handle, 0, my_packet_handler, nullptr);
+    pcap_dispatch(handle, 1, my_packet_handler, nullptr);
     pcap_close(handle);
 
     return (0);
+}
+
+void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
+{
+    cout << __PRETTY_FUNCTION__ << endl;
+    struct ether_header *eth_header;
+    ip *iphdr = (ip *)(packet + sizeof(ether_header));
+    eth_header = (struct ether_header *) packet;
+
+//    cout << "eth_header->ether_type: " << eth_header->ether_type << endl;
+//    cout << "ntohs: " << ntohs(eth_header->ether_type) << endl;
+//    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP)
+//    {
+//        cout << "[IP][" << (uint16_t)iphdr->ip_p <<  "]";
+//    }
+
+    hexdumpBuf((char *)packet, header->len);
+
+
+    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
+        printf("IP\n");
+    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_ARP) {
+        printf("ARP\n");
+    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_REVARP) {
+        printf("Reverse ARP\n");
+    }
 }
 
 //TODO envoyer data pour calculer tcpLength
@@ -214,31 +240,7 @@ uint32_t nm_get_ip_interface(const char *interfaceName)
     return (0);
 }
 
-void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
-{
-    //cout << __PRETTY_FUNCTION__ << endl;
-    struct ether_header *eth_header;
-    ip *iphdr = (ip *)(packet + sizeof(ether_header));
-    eth_header = (struct ether_header *) packet;
 
-//    cout << "eth_header->ether_type: " << eth_header->ether_type << endl;
-//    cout << "ntohs: " << ntohs(eth_header->ether_type) << endl;
-    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP)
-    {
-        cout << "[IP][" << (uint16_t)iphdr->ip_p <<  "]";
-    }
-
-    //hexdumpBuf((char *)packet, header->len);
-
-
-    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
-        printf("IP\n");
-    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_ARP) {
-        printf("ARP\n");
-    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_REVARP) {
-        printf("Reverse ARP\n");
-    }
-}
 
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) {
     printf("Packet capture length: %d\n", packet_header.caplen);
