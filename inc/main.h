@@ -5,7 +5,6 @@
 #ifndef NMAP_MAIN_H
 #define NMAP_MAIN_H
 
-#include <thread>
 #include <iostream>
 #include <pcap.h>
 #include <string>
@@ -21,10 +20,14 @@
 #include <netinet/if_ether.h>
 #include <ifaddrs.h>
 #include <string.h>
+#include <map>
+#include <thread>
+#include <vector>
 
 
-using std::cout;
-using std::endl;
+using namespace std;
+
+#define INTERFACE "en0"
 
 uint16_t	icmpChecksum(uint16_t *data, uint32_t len);
 void        hexdumpBuf(char *buf, uint32_t len);
@@ -44,6 +47,7 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_c
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header);
 uint32_t nm_get_ip_interface(const char *interfaceName);
 void makeChecksumTcp(uint32_t dstAddr, const char *interfaceName, tcphdr *tcpHeader);
+void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domainNameDest, uint32_t sockFdRawTcp, char *dev);
 
 struct pseudoHdrIp {
     uint32_t srcAddr;
@@ -53,5 +57,13 @@ struct pseudoHdrIp {
     uint16_t tcpLength;
 };
 
+enum class resScan {
+    NONE = 0,
+    OPEN = 1,
+    CLOSE = 2,
+    FILTERED = 3
+};
+
+map<uint16_t , resScan> mapResScan;
 
 #endif //NMAP_MAIN_H

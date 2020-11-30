@@ -4,21 +4,23 @@
 
 #include "main.h"
 
-#define INTERFACE "en0"
 
 int main(int ac, char **av)
 {
-    if (ac != 3)
+    if (ac != 4)
     {
-        printf("usage: %s <address> <port>\n", av[0]);
+        printf("usage: %s <address> <port> <+nPorts>\n", av[0]);
         return 1;
     }
 
     char *domainNameDest = av[1];
 
+
     uint16_t leBonGrosPorcDeDestination;
+    uint16_t nPorts;
     try {
         leBonGrosPorcDeDestination = std::stoi(av[2]);
+        nPorts = stoi(av[3]);
     }
     catch (std::exception &e)
     {
@@ -71,7 +73,7 @@ int main(int ac, char **av)
     addr.sin_addr.s_addr = htonl(INADDR_ANY); //attribue automatiquement l'ip locale
 
     //MacOs specificity - (uniquement pour send)
-    int32_t retBind = bind(sockFdRawTcp, (sockaddr *) &addr, sizeof(addr));
+    int32_t retBind = ::bind(sockFdRawTcp, (sockaddr *) &addr, sizeof(addr));
     if (retBind == -1)
     {
         cout << "retBind error: " << retBind << endl;
@@ -84,6 +86,67 @@ int main(int ac, char **av)
     else
         printf("port number %d\n", sin.sin_port);
 
+
+    /*sockaddr_in addrDest = {0};
+    addrDest.sin_family = AF_INET;
+    addrDest.sin_port = htons(leBonGrosPorcDeDestination);
+    inet_pton(AF_INET, domainNameDest, &addrDest.sin_addr.s_addr);
+
+    tcphdr tcpHeader = {0};
+    tcpHeader.th_sport = htons(4242);
+    tcpHeader.th_dport = htons(leBonGrosPorcDeDestination);
+    tcpHeader.th_off = sizeof(tcphdr) >> (uint32_t)2;
+    tcpHeader.th_flags |= (uint32_t)TH_SYN;
+    tcpHeader.th_win = htons(1024);
+    makeChecksumTcp((uint32_t)addrDest.sin_addr.s_addr, std::string(INTERFACE).c_str(), &tcpHeader);
+
+    cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
+    if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
+    {
+        cout << "Error sendto()" << endl;
+        perror("perror sendto");
+        return 1;
+    }*/
+
+
+
+
+    /* PCAP */
+
+    char error_buffer[PCAP_ERRBUF_SIZE];
+
+    char dev[] = INTERFACE;
+    bpf_u_int32 subnet_mask, ip;
+
+    //cout << __PRETTY_FUNCTION__ << endl;
+    /* Open device for live capture */
+
+    if (pcap_lookupnet(dev, &ip, &subnet_mask, error_buffer) == -1) {
+        printf("Could not get information for device: %s\n", dev);
+        ip = 0;
+        subnet_mask = 0;
+    }
+
+    vector<thread> threads;
+    for ( ; nPorts > 0 ; --nPorts)
+    {
+        threads.emplace_back(scanPort, std::ref(ip), leBonGrosPorcDeDestination + nPorts, domainNameDest, sockFdRawTcp, dev);
+
+    }
+
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    return (0);
+}
+
+void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domainNameDest, uint32_t sockFdRawTcp, char *dev)
+{
+    char error_buffer[PCAP_ERRBUF_SIZE];
+    pcap_t *handle;
+    int timeout_limit = 100; /* In milliseconds */
 
     sockaddr_in addrDest = {0};
     addrDest.sin_family = AF_INET;
@@ -103,81 +166,37 @@ int main(int ac, char **av)
     {
         cout << "Error sendto()" << endl;
         perror("perror sendto");
-        return 1;
+        return ;
     }
-
-
-
-
-    /* PCAP */
-
-    //char *device;
-    char error_buffer[PCAP_ERRBUF_SIZE];
-    pcap_t *handle;
-    char dev[] = INTERFACE;
-    bpf_u_int32 subnet_mask, ip;
-    int timeout_limit = 100; /* In milliseconds */
-    //cout << __PRETTY_FUNCTION__ << endl;
-    /* Open device for live capture */
-
-    if (pcap_lookupnet(dev, &ip, &subnet_mask, error_buffer) == -1) {
-        printf("Could not get information for device: %s\n", dev);
-        ip = 0;
-        subnet_mask = 0;
-    }
-
-    /*pcap_if_t *devices;
-    if (pcap_findalldevs(&devices, error_buffer) != 0)
-    {
-        printf("Could not get device: %s\n", dev);
-    }
-
-    while(devices)
-    {
-        cout << "name: " << devices->name << endl;
-        if (devices->description)
-            cout << "description: " << devices->description << endl;
-        cout << "flag: " << devices->flags << endl;
-        if (std::string(devices->name) == "lo0")
-        {
-            break;
-        }
-        devices = devices->next;
-        cout << endl;
-    }*/
-    //cout << "name: " << devices->name << endl;
-    //cout << "description: " << devices->description << endl;
-
 
     handle = pcap_open_live(dev, BUFSIZ, 1, timeout_limit, error_buffer);
     if (handle == nullptr) {
         fprintf(stderr, "Could not open device lo0: %s\n", error_buffer);
-        return 2;
+        return ;
     }
 
-    char filter_exp[] = "src port 80 && dst port 4242 && (tcp[tcpflags] == (tcp-syn | tcp-ack))";
+    string filters = string("tcp && src port ") + to_string(leBonGrosPorcDeDestination) + string(" && dst port 4242");
+    const char *filter_exp = filters.c_str();
     bpf_program filter = {0};
     if (pcap_compile(handle, &filter, filter_exp, 0, ip) == -1) {
         printf("Bad filter - %s\n", pcap_geterr(handle));
-        return 2;
+        return ;
     }
     if (pcap_setfilter(handle, &filter) == -1) {
         printf("Error setting filter - %s\n", pcap_geterr(handle));
-        return 2;
+        return ;
     }
 
     pcap_dispatch(handle, 1, my_packet_handler, nullptr);
     pcap_close(handle);
-
-    return (0);
 }
 
 void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
 {
-    cout << __PRETTY_FUNCTION__ << endl;
     struct ether_header *eth_header;
     ip *iphdr = (ip *)(packet + sizeof(ether_header));
     eth_header = (struct ether_header *) packet;
+    tcphdr *tcp = (tcphdr *)((uint8_t *)(iphdr) + iphdr->ip_hl * 4);
 
 //    cout << "eth_header->ether_type: " << eth_header->ether_type << endl;
 //    cout << "ntohs: " << ntohs(eth_header->ether_type) << endl;
@@ -185,6 +204,15 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_c
 //    {
 //        cout << "[IP][" << (uint16_t)iphdr->ip_p <<  "]";
 //    }
+
+    if (tcp->th_flags == (TH_ACK | TH_SYN))
+    {
+        //open
+    }
+    if (tcp->th_flags == (TH_RST))
+    {
+        //close
+    }
 
     hexdumpBuf((char *)packet, header->len);
 
