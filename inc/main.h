@@ -61,8 +61,22 @@ enum class resScan {
     NONE = 0,
     OPEN = 1,
     CLOSE = 2,
-    FILTERED = 3
+    FILTERED = 3,
 };
+
+ostream &operator<<(ostream& os, resScan &type)
+{
+    if (type == resScan::OPEN)
+        os << "OPEN";
+    else if (type == resScan::CLOSE)
+        os << "CLOSE";
+    else if (type == resScan::FILTERED)
+        os << "FILTERED";
+    else
+        os << "NONE";
+    return os;
+}
+
 
 map<uint16_t , resScan> mapResScan;
 

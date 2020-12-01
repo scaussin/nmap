@@ -9,7 +9,7 @@ int main(int ac, char **av)
 {
     if (ac != 4)
     {
-        printf("usage: %s <address> <port> <+nPorts>\n", av[0]);
+        printf("usage: %s <address> <port> <nPorts>\n", av[0]);
         return 1;
     }
 
@@ -127,17 +127,39 @@ int main(int ac, char **av)
         subnet_mask = 0;
     }
 
-    vector<thread> threads;
-    for ( ; nPorts > 0 ; --nPorts)
+    for (uint16_t i = 0; i < nPorts ; ++i)
     {
-        threads.emplace_back(scanPort, std::ref(ip), leBonGrosPorcDeDestination + nPorts, domainNameDest, sockFdRawTcp, dev);
+        mapResScan[leBonGrosPorcDeDestination + i] = resScan::NONE;
+    }
 
+    vector<thread> threads;
+    for (uint16_t i = 0; i < nPorts ; ++i)
+    {
+        threads.emplace_back(scanPort, std::ref(ip), leBonGrosPorcDeDestination + i, domainNameDest, sockFdRawTcp, dev);
     }
 
     for (auto& th : threads)
     {
         th.join();
     }
+
+    cout << "PORT    STATE" << endl;
+    uint32_t nFiltered = 0;
+    for (uint16_t i = 0; i < nPorts ; ++i)
+    {
+        if (mapResScan[leBonGrosPorcDeDestination + i] == resScan::FILTERED)
+        {
+            nFiltered++;
+        }
+        else
+        {
+            cout << leBonGrosPorcDeDestination + i << std::setw(11) << std::setfill(' ');
+            cout << mapResScan[leBonGrosPorcDeDestination + i] << endl;
+        }
+    }
+    cout << nFiltered << " filtered ports" << endl;
+
+    close(sockFdRawTcp);
 
     return (0);
 }
@@ -161,7 +183,7 @@ void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domain
     tcpHeader.th_win = htons(1024);
     makeChecksumTcp((uint32_t)addrDest.sin_addr.s_addr, std::string(INTERFACE).c_str(), &tcpHeader);
 
-    cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
+    //cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
     if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
     {
         cout << "Error sendto()" << endl;
@@ -188,11 +210,19 @@ void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domain
     }
 
     pcap_dispatch(handle, 1, my_packet_handler, nullptr);
+
+    if (mapResScan[leBonGrosPorcDeDestination] == resScan::NONE)
+    {
+        //timeout -> filtered port
+        mapResScan[leBonGrosPorcDeDestination] = resScan::FILTERED;
+    }
+
     pcap_close(handle);
 }
 
 void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
 {
+    cout << __PRETTY_FUNCTION__ << endl;
     struct ether_header *eth_header;
     ip *iphdr = (ip *)(packet + sizeof(ether_header));
     eth_header = (struct ether_header *) packet;
@@ -207,23 +237,14 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_c
 
     if (tcp->th_flags == (TH_ACK | TH_SYN))
     {
-        //open
+        mapResScan[ntohs(tcp->th_sport)] = resScan::OPEN;
     }
-    if (tcp->th_flags == (TH_RST))
+    if (tcp->th_flags == (TH_RST | TH_ACK))
     {
-        //close
+        mapResScan[ntohs(tcp->th_sport)] = resScan::CLOSE;
     }
 
-    hexdumpBuf((char *)packet, header->len);
-
-
-    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
-        printf("IP\n");
-    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_ARP) {
-        printf("ARP\n");
-    } else  if (ntohs(eth_header->ether_type) == ETHERTYPE_REVARP) {
-        printf("Reverse ARP\n");
-    }
+    //hexdumpBuf((char *)packet, header->len);
 }
 
 //TODO envoyer data pour calculer tcpLength
