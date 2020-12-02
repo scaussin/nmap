@@ -7,17 +7,15 @@
 
 int main(int ac, char **av)
 {
+    char *domainNameDest = av[1];
+    uint16_t leBonGrosPorcDeDestination;
+    uint16_t nPorts;
+
     if (ac != 4)
     {
         printf("usage: %s <address> <port> <nPorts>\n", av[0]);
         return 1;
     }
-
-    char *domainNameDest = av[1];
-
-
-    uint16_t leBonGrosPorcDeDestination;
-    uint16_t nPorts;
     try {
         leBonGrosPorcDeDestination = std::stoi(av[2]);
         nPorts = stoi(av[3]);
@@ -28,34 +26,6 @@ int main(int ac, char **av)
         return (1);
     }
 
-    /*addrinfo hints = {0};
-    hints.ai_family = AF_INET; // IPv4
-    hints.ai_socktype = 0;
-    hints.ai_protocol = IPPROTO_IP;
-
-    //requete DNS pour resoudre le nom de domaine
-    addrinfo *addrInfoLst;
-    int ret = getaddrinfo(domainNameDest, nullptr, &hints, &addrInfoLst);
-    if (ret)
-    {
-        cout << "ping: cannot resolve " << domainNameDest << ": Unknown host" << endl;
-        return 1;
-    }
-
-    //recuperation de l'adresse en char[] pour l'affichage.
-    std::string ipDest = getIpStr(*((sockaddr_in *) addrInfoLst->ai_addr));
-
-    addrinfo *addrInfoLstFirst = addrInfoLst;
-
-    if (!addrInfoLstFirst)
-    {
-        cout << "ERROR return getaddrinfo() empty" << endl;
-        return 1;
-    }
-
-    cout << "Nmap scan report for " << domainNameDest << " (" << ipDest << ")" << endl;
-
-*/
     //creation de la raw socket en TCP pour l'envoi des SYN
     int32_t sockFdRawTcp = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
     if (sockFdRawTcp == -1)
@@ -64,62 +34,22 @@ int main(int ac, char **av)
         return 1;
     }
 
-    /*int yes = 1;
-    setsockopt(sockFdRaw, IPPROTO_IP, IP_HDRINCL, &yes, sizeof(yes));*/
-
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(0); //attribue un port disponible automatiquement
     addr.sin_addr.s_addr = htonl(INADDR_ANY); //attribue automatiquement l'ip locale
 
     //MacOs specificity - (uniquement pour send)
-    int32_t retBind = ::bind(sockFdRawTcp, (sockaddr *) &addr, sizeof(addr));
+    /*int32_t retBind = ::bind(sockFdRawTcp, (sockaddr *) &addr, sizeof(addr));
     if (retBind == -1)
     {
         cout << "retBind error: " << retBind << endl;
-    }
-
-    sockaddr_in sin = {0};
-    socklen_t len = sizeof(sin);
-    if (getsockname(sockFdRawTcp, (struct sockaddr *)&sin, &len) == -1)
-        perror("getsockname");
-    else
-        printf("port number %d\n", sin.sin_port);
-
-
-    /*sockaddr_in addrDest = {0};
-    addrDest.sin_family = AF_INET;
-    addrDest.sin_port = htons(leBonGrosPorcDeDestination);
-    inet_pton(AF_INET, domainNameDest, &addrDest.sin_addr.s_addr);
-
-    tcphdr tcpHeader = {0};
-    tcpHeader.th_sport = htons(4242);
-    tcpHeader.th_dport = htons(leBonGrosPorcDeDestination);
-    tcpHeader.th_off = sizeof(tcphdr) >> (uint32_t)2;
-    tcpHeader.th_flags |= (uint32_t)TH_SYN;
-    tcpHeader.th_win = htons(1024);
-    makeChecksumTcp((uint32_t)addrDest.sin_addr.s_addr, std::string(INTERFACE).c_str(), &tcpHeader);
-
-    cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
-    if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
-    {
-        cout << "Error sendto()" << endl;
-        perror("perror sendto");
-        return 1;
     }*/
-
-
-
-
-    /* PCAP */
 
     char error_buffer[PCAP_ERRBUF_SIZE];
 
     char dev[] = INTERFACE;
     bpf_u_int32 subnet_mask, ip;
-
-    //cout << __PRETTY_FUNCTION__ << endl;
-    /* Open device for live capture */
 
     if (pcap_lookupnet(dev, &ip, &subnet_mask, error_buffer) == -1) {
         printf("Could not get information for device: %s\n", dev);
@@ -166,9 +96,11 @@ int main(int ac, char **av)
 
 void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domainNameDest, uint32_t sockFdRawTcp, char *dev)
 {
+    std::lock_guard<std::mutex> lck (mtx);
     char error_buffer[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
     int timeout_limit = 100; /* In milliseconds */
+    bool retrySend = true;
 
     sockaddr_in addrDest = {0};
     addrDest.sin_family = AF_INET;
@@ -183,7 +115,7 @@ void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domain
     tcpHeader.th_win = htons(1024);
     makeChecksumTcp((uint32_t)addrDest.sin_addr.s_addr, std::string(INTERFACE).c_str(), &tcpHeader);
 
-    //cout << "sendto: [SYN] " << domainNameDest << ":" << leBonGrosPorcDeDestination << endl;
+    send:
     if (sendto(sockFdRawTcp, &tcpHeader, sizeof(tcpHeader), 0, (sockaddr *)&addrDest, sizeof(addrDest)) == -1)
     {
         cout << "Error sendto()" << endl;
@@ -213,6 +145,12 @@ void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domain
 
     if (mapResScan[leBonGrosPorcDeDestination] == resScan::NONE)
     {
+        if (retrySend)
+        {
+            retrySend = false;
+            pcap_close(handle);
+            goto send;
+        }
         //timeout -> filtered port
         mapResScan[leBonGrosPorcDeDestination] = resScan::FILTERED;
     }
@@ -222,18 +160,10 @@ void scanPort(bpf_u_int32 &ip, uint16_t leBonGrosPorcDeDestination, char *domain
 
 void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet)
 {
-    cout << __PRETTY_FUNCTION__ << endl;
     struct ether_header *eth_header;
     ip *iphdr = (ip *)(packet + sizeof(ether_header));
     eth_header = (struct ether_header *) packet;
     tcphdr *tcp = (tcphdr *)((uint8_t *)(iphdr) + iphdr->ip_hl * 4);
-
-//    cout << "eth_header->ether_type: " << eth_header->ether_type << endl;
-//    cout << "ntohs: " << ntohs(eth_header->ether_type) << endl;
-//    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP)
-//    {
-//        cout << "[IP][" << (uint16_t)iphdr->ip_p <<  "]";
-//    }
 
     if (tcp->th_flags == (TH_ACK | TH_SYN))
     {
@@ -243,8 +173,6 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_c
     {
         mapResScan[ntohs(tcp->th_sport)] = resScan::CLOSE;
     }
-
-    //hexdumpBuf((char *)packet, header->len);
 }
 
 //TODO envoyer data pour calculer tcpLength
@@ -288,8 +216,6 @@ uint32_t nm_get_ip_interface(const char *interfaceName)
     freeifaddrs(ifap);
     return (0);
 }
-
-
 
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) {
     printf("Packet capture length: %d\n", packet_header.caplen);

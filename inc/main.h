@@ -23,6 +23,7 @@
 #include <map>
 #include <thread>
 #include <vector>
+#include <mutex>
 
 
 using namespace std;
@@ -79,5 +80,6 @@ ostream &operator<<(ostream& os, resScan &type)
 
 
 map<uint16_t , resScan> mapResScan;
+std::mutex mtx;
 
 #endif //NMAP_MAIN_H
